@@ -1,0 +1,15 @@
+{
+  "name": "whare-root",
+  "packageManager": "yarn@4.0.2",
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@whare/cli": "workspace:*",
+    "dprint": "^0.43.1"
+  },
+  "scripts": {
+    "format": "dprint fmt",
+    "format:check": "dprint check"
+  }
+}

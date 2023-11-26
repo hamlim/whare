@@ -1,0 +1,25 @@
+{
+  "name": "@whare/cli",
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "source": "src/index.tsx",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "url": "git@github.com:hamlim/whare.git",
+    "directory": "packages/cli",
+    "type": "git"
+  },
+  "author": "Matt Hamlin <matthewjameshamlin@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "build": "echo \"todo...\"",
+    "pub": "yarn npm publish --access public"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.4"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
