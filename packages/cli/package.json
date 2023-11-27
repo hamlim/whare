@@ -13,7 +13,7 @@
   "license": "MIT",
   "scripts": {
     "build": "echo \"todo...\"",
-    "pub": "yarn npm publish --access public"
+    "pub": "npm publish --access public"
   },
   "devDependencies": {
     "typescript": "^5.0.4"

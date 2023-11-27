@@ -1,11 +1,11 @@
 {
   "name": "whare-root",
-  "packageManager": "yarn@4.0.2",
   "workspaces": [
     "packages/*"
   ],
   "devDependencies": {
     "@whare/cli": "workspace:*",
+    "bun-types": "^1.0.14",
     "dprint": "^0.43.1"
   },
   "scripts": {
