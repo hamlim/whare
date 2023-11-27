@@ -10,6 +10,7 @@
   },
   "scripts": {
     "format": "dprint fmt",
-    "format:check": "dprint check"
+    "format:check": "dprint check",
+    "decision": "bun ./scripts/decisions.ts"
   }
 }
