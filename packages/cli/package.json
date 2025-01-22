@@ -29,6 +29,9 @@
     "@types/bun": "1.1.11",
     "typescript": "5.4.5"
   },
+  "dependencies": {
+    "degit": "2.8.4"
+  },
   "scripts": {
     "dev": "node --watch-path=./src dev.mjs",
     "build": "hohoro-experimental",
