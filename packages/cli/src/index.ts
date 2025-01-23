@@ -1,9 +1,9 @@
 import { exec as execRegular } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import degit from "degit";
 
 let exec = promisify(execRegular);
 
@@ -80,7 +80,7 @@ function parseArgs(): { command: Command; options: CommandOptions } | null {
   return result as { command: Command; options: CommandOptions };
 }
 
-async function getCurrentTemplateHash(): Promise<string> {
+async function getCurrentTemplateHash(logger: Logger): Promise<string> {
   try {
     let { stdout } = await exec(
       `git ls-remote https://github.com/hamlim/template-monorepo.git`,
@@ -88,21 +88,19 @@ async function getCurrentTemplateHash(): Promise<string> {
 
     return stdout.split("\t")[0];
   } catch (error) {
-    console.error("Failed to get current template hash", error);
+    logger.log(`Error: Failed to get current template hash: ${error}`);
     process.exit(1);
   }
 }
 
-interface WhareConfig {
-  version: string;
-  // Track which workspaces were created from which templates
-  workspaces?: Record<
-    string,
-    {
-      template: "template-library" | "template-app";
-      version: string;
-    }
-  >;
+async function cloneTemplate(clonePath: string, logger: Logger): Promise<void> {
+  try {
+    await exec(
+      `cd ${clonePath} && git clone https://github.com/hamlim/template-monorepo.git .`,
+    );
+  } catch (error) {
+    logger.log(`Error: Failed to clone template: ${error}`);
+  }
 }
 
 type DiffEntryWithContent = {
@@ -121,6 +119,7 @@ type DiffEntry =
 async function getRepoDiffs(
   fromHash: string,
   toHash: string,
+  logger: Logger,
 ): Promise<DiffEntry[]> {
   try {
     // Create a temp directory to clone the repo
@@ -129,9 +128,7 @@ async function getRepoDiffs(
     await mkdir(tempDir, { recursive: true });
 
     // Clone the repo
-    await exec(
-      `cd ${tempDir} && git clone https://github.com/hamlim/template-monorepo.git .`,
-    );
+    await cloneTemplate(tempDir, logger);
 
     // Get the diff between versions
     let { stdout } = await exec(
@@ -161,7 +158,7 @@ async function getRepoDiffs(
 
     return diffs;
   } catch (error) {
-    console.error("Failed to get repo diffs:", error);
+    logger.log(`Error: Failed to get repo diffs: ${error}`);
     process.exit(1);
   }
 }
@@ -226,7 +223,7 @@ async function updateProject(
   isDry: boolean,
   options: UpdateOptions = {},
 ): Promise<void> {
-  let currentHash = await getCurrentTemplateHash();
+  let currentHash = await getCurrentTemplateHash(logger);
   let ignoredFiles = new Set([
     ...DEFAULT_IGNORED_FILES,
     ...(options.ignoredFiles || []),
@@ -239,7 +236,7 @@ async function updateProject(
   // let whareConfig: WhareConfig = pkgJson.whare || { version: fromVersion };
 
   // Get diffs from template
-  let diffs = await getRepoDiffs(fromVersion, currentHash);
+  let diffs = await getRepoDiffs(fromVersion, currentHash, logger);
 
   // bail if there are no diffs
   if (diffs.length === 0) {
@@ -363,7 +360,7 @@ export async function run(): Promise<void> {
   try {
     switch (command) {
       case "init": {
-        let hash = await getCurrentTemplateHash();
+        let hash = await getCurrentTemplateHash(logger);
         if (options.dry) {
           // dry mode always logs to the console
           console.log(
@@ -378,16 +375,14 @@ export async function run(): Promise<void> {
           break;
         }
 
-        let emitter = degit("hamlim/template-monorepo", {
-          cache: true,
-          verbose: true,
-        });
+        if (!existsSync(options.path)) {
+          await mkdir(options.path, { recursive: true });
+        }
 
-        emitter.on("info", (info): void => {
-          logger.log(info.message);
-        });
+        await cloneTemplate(options.path, logger);
 
-        await emitter.clone(options.path);
+        await exec(`cd ${options.path} && rm -rf .git`);
+
         logger.log("Successfully initialized project!");
 
         let rootPackageJson = await readFile(

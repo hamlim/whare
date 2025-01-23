@@ -1,5 +1,10 @@
 ### Unreleased:
 
+### [0.1.3] - January 23rd, 2025
+
+- Fix cache of stale versions of template-monorepo repo in degit cache
+- remove usage of `degit`
+
 ### [0.1.2] - January 23rd, 2025
 
 - Fix publishing

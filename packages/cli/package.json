@@ -1,6 +1,6 @@
 {
   "name": "@whare/cli",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Whare CLI - used for bootstrapping new monorepos and managing existing ones",
   "homepage": "https://github.com/hamlim/whare",
   "author": {
@@ -29,9 +29,6 @@
     "hohoro": "0.3.0",
     "@types/bun": "1.1.11",
     "typescript": "5.4.5"
-  },
-  "dependencies": {
-    "degit": "2.8.4"
   },
   "scripts": {
     "dev": "node --watch-path=./src dev.mjs",
