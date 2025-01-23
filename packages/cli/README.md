@@ -7,7 +7,25 @@ A CLI for creating and managing monorepos!
 ```bash
 bun add @whare/cli -D
 ```
+## Features:
 
+The CLI supports several commands to help you manage your monorepo:
+
+### `init`
+
+Initialize a new monorepo project:
+
+```sh
+bunx @whare/cli init ./path/to/project
+```
+
+### `update`
+
+Update a monorepo project:
+
+```sh
+bunx @whare/cli update ./path/to/project
+```
 
 ## Contributing:
 

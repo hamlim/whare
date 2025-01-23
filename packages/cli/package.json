@@ -1,6 +1,6 @@
 {
   "name": "@whare/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Whare CLI - used for bootstrapping new monorepos and managing existing ones",
   "homepage": "https://github.com/hamlim/whare",
   "author": {

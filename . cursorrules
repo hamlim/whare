@@ -1,0 +1,2 @@
+ALWAYS use `let` instead of `const`
+ALWAYS use function declarations (e.g. `function <name>() {}`) instead of arrow functions
