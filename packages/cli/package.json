@@ -1,6 +1,6 @@
 {
   "name": "@whare/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Whare CLI - used for bootstrapping new monorepos and managing existing ones",
   "homepage": "https://github.com/hamlim/whare",
   "author": {
@@ -21,6 +21,7 @@
   "bin": {
     "whare": "./cli.mjs"
   },
+  "files": ["dist", "cli.mjs", "CHANGELOG.md", "README.md"],
   "type": "module",
   "devDependencies": {
     "@swc/cli": "0.3.10",
