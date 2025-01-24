@@ -230,10 +230,7 @@ async function updateProject(
   ]);
   let branchName = options.branchName || `whare-update-${Date.now()}`;
 
-  // Read current whare config
   let pkgJsonPath = path.join(projectPath, "package.json");
-  let pkgJson = JSON.parse(await readFile(pkgJsonPath, "utf8"));
-  // let whareConfig: WhareConfig = pkgJson.whare || { version: fromVersion };
 
   // Get diffs from template
   let diffs = await getRepoDiffs(fromVersion, currentHash, logger);
@@ -314,7 +311,12 @@ async function updateProject(
     }
 
     // Update version in package.json
-    pkgJson.whare.version = currentHash;
+    let pkgJsonContents = await readFile(pkgJsonPath, "utf8");
+    let pkgJson = JSON.parse(pkgJsonContents);
+    pkgJson.whare = {
+      ...(pkgJson.whare || {}),
+      version: currentHash,
+    };
     await writeFile(pkgJsonPath, JSON.stringify(pkgJson, null, 2));
 
     // Stage all changes

@@ -22,5 +22,8 @@
     "one-version:check": "one-version check",
     "knip": "knip"
   },
-  "packageManager": "bun@1.1.45"
+  "packageManager": "bun@1.1.45",
+  "whare": {
+    "version": "9017d2cb10b9234da8e140c9b72a56648fd1b33b"
+  }
 }
