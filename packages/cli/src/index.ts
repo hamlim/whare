@@ -221,14 +221,9 @@ async function updateProject(
   fromVersion: string,
   logger: Logger,
   isDry: boolean,
-  options: UpdateOptions = {},
 ): Promise<void> {
   let currentHash = await getCurrentTemplateHash(logger);
-  let ignoredFiles = new Set([
-    ...DEFAULT_IGNORED_FILES,
-    ...(options.ignoredFiles || []),
-  ]);
-  let branchName = options.branchName || `whare-update-${Date.now()}`;
+  let ignoredFiles = DEFAULT_IGNORED_FILES;
 
   let pkgJsonPath = path.join(projectPath, "package.json");
 
@@ -259,93 +254,59 @@ async function updateProject(
     return;
   }
 
-  // Create and checkout new branch for changes
-  try {
-    await exec(`cd ${projectPath} && git checkout -b ${branchName}`);
-    logger.log(`Created new branch: ${branchName}`);
-  } catch (error) {
-    console.error("Failed to create git branch. Is this a git repository?");
-    process.exit(1);
+  // Apply root-level changes
+  for (let diff of filteredDiffs) {
+    if (
+      diff.path.startsWith("packages/template-") ||
+      diff.path.startsWith("apps/template-")
+    ) {
+      continue;
+    }
+
+    await applyDiff(projectPath, diff);
   }
 
-  try {
-    // Apply root-level changes
-    for (let diff of filteredDiffs) {
-      if (
-        diff.path.startsWith("packages/template-") ||
-        diff.path.startsWith("apps/template-")
-      ) {
-        continue;
-      }
+  // Handle template workspace changes
+  let templateLibraryDiffs = filteredDiffs.filter((d) =>
+    d.path.startsWith("packages/template-library"),
+  );
+  let templateAppDiffs = filteredDiffs.filter((d) =>
+    d.path.startsWith("apps/template-app"),
+  );
 
-      await applyDiff(projectPath, diff);
-    }
+  // Apply template changes to each matching workspace
+  for (let workspace of workspaces) {
+    let templateDiffs = workspace.startsWith("packages/")
+      ? templateLibraryDiffs
+      : templateAppDiffs;
 
-    // Handle template workspace changes
-    let templateLibraryDiffs = filteredDiffs.filter((d) =>
-      d.path.startsWith("packages/template-library"),
-    );
-    let templateAppDiffs = filteredDiffs.filter((d) =>
-      d.path.startsWith("apps/template-app"),
-    );
-
-    // Apply template changes to each matching workspace
-    for (let workspace of workspaces) {
-      let templateDiffs = workspace.startsWith("packages/")
-        ? templateLibraryDiffs
-        : templateAppDiffs;
-
-      for (let diff of templateDiffs) {
-        let relativePath = diff.path.replace(
-          workspace.startsWith("packages/")
-            ? "packages/template-library"
-            : "apps/template-app",
-          workspace,
-        );
-
-        await applyDiff(projectPath, {
-          ...diff,
-          path: relativePath,
-        });
-      }
-    }
-
-    // Update version in package.json
-    let pkgJsonContents = await readFile(pkgJsonPath, "utf8");
-    let pkgJson = JSON.parse(pkgJsonContents);
-    pkgJson.whare = {
-      ...(pkgJson.whare || {}),
-      version: currentHash,
-    };
-    await writeFile(pkgJsonPath, JSON.stringify(pkgJson, null, 2));
-
-    // Stage all changes
-    await exec(`cd ${projectPath} && git add .`);
-
-    // Show status and instructions
-    logger.log("\nUpdate completed! Review the changes:");
-    logger.log(`1. Check 'git status' to see modified files`);
-    logger.log(`2. Review changes with 'git diff --cached'`);
-    logger.log(
-      `3. Commit changes with 'git commit -m "feat: update template"'`,
-    );
-    logger.log(
-      `4. Merge to main branch: 'git checkout main && git merge ${branchName}'`,
-    );
-    logger.log("\nOr to discard changes:");
-    logger.log(`1. git checkout main`);
-    logger.log(`2. git branch -D ${branchName}`);
-  } catch (error) {
-    // If anything fails, try to cleanup
-    try {
-      await exec(
-        `cd ${projectPath} && git checkout main && git branch -D ${branchName}`,
+    for (let diff of templateDiffs) {
+      let relativePath = diff.path.replace(
+        workspace.startsWith("packages/")
+          ? "packages/template-library"
+          : "apps/template-app",
+        workspace,
       );
-    } catch {
-      // Ignore cleanup errors
+
+      await applyDiff(projectPath, {
+        ...diff,
+        path: relativePath,
+      });
     }
-    throw error;
   }
+
+  // Update version in package.json
+  let pkgJsonContents = await readFile(pkgJsonPath, "utf8");
+  let pkgJson = JSON.parse(pkgJsonContents);
+  pkgJson.whare = {
+    ...(pkgJson.whare || {}),
+    version: currentHash,
+  };
+  await writeFile(pkgJsonPath, JSON.stringify(pkgJson, null, 2));
+
+  // Show status and instructions
+  logger.log("\nUpdate completed! Review the changes:");
+  logger.log(`1. Check 'git status' to see modified files`);
 }
 
 export async function run(): Promise<void> {
@@ -461,9 +422,6 @@ export async function run(): Promise<void> {
           pkgJson.whare.version,
           logger,
           options.dry,
-          {
-            branchName: `whare-update-${Date.now()}`,
-          },
         );
 
         if (!options.dry) {

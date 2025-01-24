@@ -1,5 +1,9 @@
 ### Unreleased:
 
+### [0.1.4] - January 23rd, 2025
+
+- Simplify flow for updates, don't create new branches or stage changes automatically
+
 ### [0.1.3] - January 23rd, 2025
 
 - Fix cache of stale versions of template-monorepo repo in degit cache
