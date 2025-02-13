@@ -1,5 +1,9 @@
 ### Unreleased:
 
+### [0.2.1] - February 13th, 2025
+
+- Add support for `ignoredWorkspaces` config to ignore packages or apps during the update process
+
 ### [0.2.0] - February 13th, 2025
 
 - Add smarter diffing for `package.json` files

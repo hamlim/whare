@@ -491,6 +491,13 @@ async function applyDiff(
 // Add these new constants and types
 let DEFAULT_IGNORED_FILES = new Set(["bun.lockb"]);
 
+// Helper to normalize workspace paths
+function normalizeWorkspacePath(basePath: string, inputPath: string): string {
+  // Remove ./ prefix if present
+  let normalizedPath = inputPath.replace(/^\.\//, "");
+  return path.join(basePath, normalizedPath);
+}
+
 // Add this helper function before updateProject
 async function getTemplateWorkspaces(tempDir: string): Promise<{
   templateLibrary: string | null;
@@ -518,6 +525,15 @@ async function updateProject(
   let ignoredFiles = DEFAULT_IGNORED_FILES;
 
   let pkgJsonPath = path.join(projectPath, "package.json");
+  let pkgJsonContents = await readFile(pkgJsonPath, "utf8");
+  let pkgJson = JSON.parse(pkgJsonContents);
+
+  // Get ignored workspaces from package.json
+  let ignoredWorkspaces = new Set(
+    ((pkgJson.whare?.ignoredWorkspaces || []) as string[]).map((workspace) =>
+      normalizeWorkspacePath(projectPath, workspace),
+    ),
+  );
 
   // Create a temp directory to clone the repo
   let tempDir = path.join(os.tmpdir(), `whare-template-${Date.now()}`);
@@ -541,7 +557,7 @@ async function updateProject(
   let projectWorkspaces = [
     ...(await findWorkspaces(path.join(projectPath, "packages"))),
     ...(await findWorkspaces(path.join(projectPath, "apps"))),
-  ];
+  ].filter((workspace) => !ignoredWorkspaces.has(workspace));
 
   if (isDry) {
     logger.log(
@@ -551,6 +567,11 @@ async function updateProject(
     logger.log(
       `Found ${projectWorkspaces.length} workspaces to potentially update`,
     );
+    if (ignoredWorkspaces.size > 0) {
+      logger.log(
+        `Ignoring workspaces: ${[...ignoredWorkspaces].map((w) => path.relative(projectPath, w)).join(", ")}`,
+      );
+    }
     logger.log(`Ignored files: ${[...ignoredFiles].join(", ")}`);
     return;
   }
@@ -655,8 +676,8 @@ async function updateProject(
   }
 
   // Update version in package.json
-  let pkgJsonContents = await readFile(pkgJsonPath, "utf8");
-  let pkgJson = JSON.parse(pkgJsonContents);
+  pkgJsonContents = await readFile(pkgJsonPath, "utf8");
+  pkgJson = JSON.parse(pkgJsonContents);
   pkgJson.whare = {
     ...(pkgJson.whare || {}),
     version: currentHash,
