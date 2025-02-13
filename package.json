@@ -6,10 +6,10 @@
   ],
   "private": true,
   "devDependencies": {
-    "@turbo/gen": "2.3.4",
+    "@turbo/gen": "2.4.2",
     "knip": "5.25.2",
     "one-version": "0.2.0",
-    "turbo": "2.3.4",
+    "turbo": "2.4.2",
     "@biomejs/biome": "1.9.4"
   },
   "scripts": {
@@ -25,8 +25,8 @@
     "one-version:check": "one-version check",
     "knip": "knip"
   },
-  "packageManager": "bun@1.2.0",
+  "packageManager": "bun@1.2.2",
   "whare": {
-    "version": "b3595c269ca585da5c4c7fcbc3862126a9ada786"
+    "version": "fc9d966709c528c01306760e7b7ed3c2399087c7"
   }
 }
