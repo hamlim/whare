@@ -1,5 +1,11 @@
 ### Unreleased:
 
+### [0.2.0] - February 13th, 2025
+
+- Add smarter diffing for `package.json` files
+- Don't clobber changes from template workspaces against workspaces that also exist in the monorepo template
+  - Fixes a bug where `components` or `utils` workspaces would be overwritten with changes from the `template-library` workspace
+
 ### [0.1.4] - January 23rd, 2025
 
 - Simplify flow for updates, don't create new branches or stage changes automatically

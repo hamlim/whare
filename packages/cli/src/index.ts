@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 
 let exec = promisify(execRegular);
 
-type Command = "init" | "update"; // | "add" | "remove";
+type Command = "init" | "update" | "help"; // | "add" | "remove";
 
 interface CommandOptions {
   path: string;
@@ -15,7 +15,7 @@ interface CommandOptions {
   verbose: boolean;
 }
 
-class Logger {
+export class Logger {
   private logs: string[] = [];
   private verbose: boolean;
 
@@ -60,7 +60,7 @@ function parseArgs(): { command: Command; options: CommandOptions } | null {
 
   // First argument should be the command
   let possibleCommand = args[0];
-  if (["init", "add", "remove", "update"].includes(possibleCommand)) {
+  if (["init", "add", "remove", "update", "help"].includes(possibleCommand)) {
     result.command = possibleCommand as Command;
   }
 
@@ -120,13 +120,9 @@ async function getRepoDiffs(
   fromHash: string,
   toHash: string,
   logger: Logger,
+  tempDir: string,
 ): Promise<DiffEntry[]> {
   try {
-    // Create a temp directory to clone the repo
-    let tempDir = path.join(os.tmpdir(), `whare-template-${Date.now()}`);
-
-    await mkdir(tempDir, { recursive: true });
-
     // Clone the repo
     await cloneTemplate(tempDir, logger);
 
@@ -163,40 +159,325 @@ async function getRepoDiffs(
   }
 }
 
-async function findWorkspaces(projectPath: string): Promise<string[]> {
-  let workspaces: string[] = [];
-  let entries = await readdir(path.join(projectPath, "packages"), {
-    withFileTypes: true,
-  });
+// Add these new types after the existing types
+interface WorkspaceInfo {
+  path: string;
+  packageName: string;
+}
 
-  for (let entry of entries) {
-    if (entry.isDirectory()) {
-      workspaces.push(path.join("packages", entry.name));
+async function getWorkspaceInfo(
+  workspacePath: string,
+): Promise<WorkspaceInfo | null> {
+  try {
+    let pkgJsonPath = path.join(workspacePath, "package.json");
+    if (!existsSync(pkgJsonPath)) {
+      return null;
+    }
+    let pkgJson = JSON.parse(await readFile(pkgJsonPath, "utf8"));
+    return {
+      path: workspacePath,
+      packageName: pkgJson.name,
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+async function findMatchingTemplateWorkspace(
+  workspace: WorkspaceInfo,
+  tempDir: string,
+): Promise<string | null> {
+  let workspaceName = path.basename(workspace.path);
+  let possiblePaths = [
+    path.join(tempDir, "packages", workspaceName),
+    path.join(tempDir, "apps", workspaceName),
+  ];
+
+  for (let possiblePath of possiblePaths) {
+    let templateWorkspace = await getWorkspaceInfo(possiblePath);
+    if (templateWorkspace?.packageName === workspace.packageName) {
+      return possiblePath;
     }
   }
 
-  let appsEntries = await readdir(path.join(projectPath, "apps"), {
-    withFileTypes: true,
-  });
-  for (let entry of appsEntries) {
-    if (entry.isDirectory()) {
-      workspaces.push(path.join("apps", entry.name));
+  return null;
+}
+
+// Update the findWorkspaces function to handle a direct path
+async function findWorkspaces(projectPath: string): Promise<string[]> {
+  let workspaces: string[] = [];
+
+  try {
+    let entries = await readdir(projectPath, { withFileTypes: true });
+    for (let entry of entries) {
+      if (entry.isDirectory()) {
+        workspaces.push(path.join(projectPath, entry.name));
+      }
     }
+  } catch (error) {
+    // Directory might not exist, return empty array
   }
 
   return workspaces;
 }
 
-async function applyDiff(projectPath: string, diff: DiffEntry): Promise<void> {
+// Add these new types and handlers before the updateProject function
+interface SpecialFileHandler {
+  shouldHandle: (filePath: string) => boolean;
+  merge: (current: string, incoming: string, logger: Logger) => Promise<string>;
+}
+
+// Fields that should never be overwritten from the template
+const PACKAGE_JSON_PROTECTED_FIELDS = new Set([
+  "name",
+  "version",
+  "private",
+  "description",
+  "author",
+  "license",
+  "repository",
+  "bugs",
+  "homepage",
+]);
+
+// Fields that should be merged (rather than replaced) from the template
+const PACKAGE_JSON_MERGE_FIELDS = new Set([
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "scripts",
+]);
+
+// Add helper to detect value differences
+export function hasValueChanged(current: unknown, incoming: unknown): boolean {
+  return JSON.stringify(current) !== JSON.stringify(incoming);
+}
+
+// Add these types and helpers for the new conflict marking approach
+interface ConflictMarker {
+  start: string;
+  mid: string;
+  end: string;
+  template: string;
+  current: string;
+}
+
+export function createConflictMarkers(
+  counter: number,
+  originalKey: string,
+): ConflictMarker {
+  const id = counter.toString().padStart(2, "0");
+  return {
+    start: `conf-start::${id}`,
+    mid: `conf-mid::${id}`,
+    end: `conf-end::${id}`,
+    template: `tmpl::${originalKey}`,
+    current: `curr::${originalKey}`,
+  };
+}
+
+export function transformToGitConflicts(jsonString: string): string {
+  // Split into lines for easier processing
+  let lines = jsonString.split("\n");
+  let result: string[] = [];
+  let inConflict = false;
+
+  // Helper to find the next non-conflict line
+  function findNextNonConflictLine(startIndex: number): string | null {
+    for (let i = startIndex; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (
+        line &&
+        // as long as the next line isn't an end of conflict marker
+        !line.startsWith('"conf-end') &&
+        !line.startsWith('"conf-mid') &&
+        // and the next line isn't a template or current marker
+        !line.startsWith('"tmpl::') &&
+        !line.startsWith('"curr::')
+      ) {
+        return line;
+      }
+    }
+    return null;
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+
+    if (line.includes('"conf-start::')) {
+      inConflict = true;
+      result.push("<<<<<<< Local Package");
+      continue;
+    }
+    if (line.includes('"conf-mid::')) {
+      result.push("=======");
+      continue;
+    }
+    if (line.includes('"conf-end::')) {
+      result.push(">>>>>>> Template");
+      inConflict = false;
+      continue;
+    }
+
+    // Transform template and current markers into their values
+    if (inConflict) {
+      if (trimmedLine.startsWith('"tmpl::')) {
+        // Find the next real line to determine if we need a comma
+        const nextNonConflictLine = findNextNonConflictLine(i + 1);
+        const needsComma = nextNonConflictLine?.startsWith('"') ?? false;
+
+        // Keep the original quotes but replace the marker
+        const processedLine = line
+          .replace(/"tmpl::([^"]+)"/, '"$1"') // Replace marker but keep quotes
+          .replace(/,(?!.*,)/, ""); // Remove last comma if present
+
+        result.push(
+          `${processedLine}${needsComma ? "," : ""} // From template`,
+        );
+        continue;
+      }
+      if (trimmedLine.startsWith('"curr::')) {
+        // Find the next real line to determine if we need a comma
+        const nextNonConflictLine = findNextNonConflictLine(i + 1);
+        const needsComma = nextNonConflictLine?.startsWith('"') ?? false;
+
+        // Keep the original quotes but replace the marker
+        const processedLine = line
+          .replace(/"curr::([^"]+)"/, '"$1"') // Replace marker but keep quotes
+          .replace(/,(?!.*,)/, ""); // Remove last comma if present
+
+        result.push(`${processedLine}${needsComma ? "," : ""}`);
+        continue;
+      }
+    }
+
+    result.push(line);
+  }
+
+  return result.join("\n");
+}
+
+export const packageJsonHandler: SpecialFileHandler = {
+  shouldHandle: (filePath: string) =>
+    path.basename(filePath) === "package.json",
+  merge: async (current: string, incoming: string, logger: Logger) => {
+    try {
+      let currentJson = JSON.parse(current);
+      let incomingJson = JSON.parse(incoming);
+      let result = { ...currentJson };
+      let conflictCounter = 0;
+
+      // Iterate through all incoming fields
+      for (let [key, incomingValue] of Object.entries(incomingJson)) {
+        if (PACKAGE_JSON_PROTECTED_FIELDS.has(key)) {
+          // Skip protected fields, leaving the current value
+          result[key] = currentJson[key];
+        } else if (
+          PACKAGE_JSON_MERGE_FIELDS.has(key) &&
+          typeof incomingValue === "object" &&
+          incomingValue !== null
+        ) {
+          // For merge fields, we need to:
+          // 1. Start with current values
+          // 2. Add any new keys from template
+          // 3. Add conflict markers for differing values
+          let mergedObject: Record<string, unknown> = { ...currentJson[key] };
+
+          // Process each key in the incoming object
+          for (let [subKey, subValue] of Object.entries(incomingValue)) {
+            if (!(subKey in mergedObject)) {
+              // New key from template, add it
+              mergedObject[subKey] = subValue;
+            } else if (hasValueChanged(mergedObject[subKey], subValue)) {
+              // Key exists but values differ, add conflict markers
+              const markers = createConflictMarkers(conflictCounter++, subKey);
+              const originalValue = mergedObject[subKey];
+
+              // Delete the original key as we'll represent it in the conflict
+              delete mergedObject[subKey];
+
+              // Add our conflict markers and values in reverse order (current first, then template)
+              mergedObject[markers.start] = "";
+              mergedObject[markers.current] = originalValue;
+              mergedObject[markers.mid] = "";
+              mergedObject[markers.template] = subValue;
+              mergedObject[markers.end] = "";
+            }
+            // If key exists and values are same, keep current value
+          }
+
+          result[key] = mergedObject;
+        } else {
+          // For all other fields, take the incoming value
+          result[key] = incomingValue;
+        }
+      }
+
+      // First stringify to JSON with standard formatting
+      let jsonString = JSON.stringify(result, null, 2);
+
+      // Then transform our markers into git-style conflicts
+      return transformToGitConflicts(jsonString);
+    } catch (error) {
+      logger.log(
+        `Warning: Failed to merge package.json, using current version: ${error}`,
+      );
+      return current;
+    }
+  },
+};
+
+const SPECIAL_FILE_HANDLERS: SpecialFileHandler[] = [packageJsonHandler];
+
+// Add this function to handle special file merging
+async function handleSpecialFile(
+  filePath: string,
+  currentContent: string | null,
+  incomingContent: string,
+  logger: Logger,
+): Promise<string> {
+  for (let handler of SPECIAL_FILE_HANDLERS) {
+    if (handler.shouldHandle(filePath)) {
+      if (!currentContent) {
+        // If there's no current content, just use the incoming content
+        return incomingContent;
+      }
+      return handler.merge(currentContent, incomingContent, logger);
+    }
+  }
+  return incomingContent;
+}
+
+// Update the applyDiff function to handle special files
+async function applyDiff(
+  projectPath: string,
+  diff: DiffEntry,
+  logger: Logger,
+): Promise<void> {
   let targetPath = path.join(projectPath, diff.path);
 
   switch (diff.type) {
     case "add":
-    case "modify":
+    case "modify": {
       // Ensure directory exists
       await mkdir(path.dirname(targetPath), { recursive: true });
-      await writeFile(targetPath, diff.content, "utf8");
+
+      let currentContent: string | null = null;
+      if (existsSync(targetPath)) {
+        currentContent = await readFile(targetPath, "utf8");
+      }
+
+      let finalContent = await handleSpecialFile(
+        diff.path,
+        currentContent,
+        diff.content,
+        logger,
+      );
+
+      await writeFile(targetPath, finalContent, "utf8");
       break;
+    }
     case "delete":
       try {
         await unlink(targetPath);
@@ -210,9 +491,20 @@ async function applyDiff(projectPath: string, diff: DiffEntry): Promise<void> {
 // Add these new constants and types
 let DEFAULT_IGNORED_FILES = new Set(["bun.lockb"]);
 
-interface UpdateOptions {
-  ignoredFiles?: Set<string>;
-  branchName?: string;
+// Add this helper function before updateProject
+async function getTemplateWorkspaces(tempDir: string): Promise<{
+  templateLibrary: string | null;
+  templateApp: string | null;
+}> {
+  let templateLibraryPath = path.join(tempDir, "packages/template-library");
+  let templateAppPath = path.join(tempDir, "apps/template-app");
+
+  return {
+    templateLibrary: existsSync(templateLibraryPath)
+      ? templateLibraryPath
+      : null,
+    templateApp: existsSync(templateAppPath) ? templateAppPath : null,
+  };
 }
 
 // Update the updateProject function
@@ -227,8 +519,12 @@ async function updateProject(
 
   let pkgJsonPath = path.join(projectPath, "package.json");
 
+  // Create a temp directory to clone the repo
+  let tempDir = path.join(os.tmpdir(), `whare-template-${Date.now()}`);
+  await mkdir(tempDir, { recursive: true });
+
   // Get diffs from template
-  let diffs = await getRepoDiffs(fromVersion, currentHash, logger);
+  let diffs = await getRepoDiffs(fromVersion, currentHash, logger, tempDir);
 
   // bail if there are no diffs
   if (diffs.length === 0) {
@@ -241,57 +537,120 @@ async function updateProject(
     (diff) => !ignoredFiles.has(path.basename(diff.path)),
   );
 
-  // Find all workspaces
-  let workspaces = await findWorkspaces(projectPath);
+  // Find all workspaces in the project
+  let projectWorkspaces = [
+    ...(await findWorkspaces(path.join(projectPath, "packages"))),
+    ...(await findWorkspaces(path.join(projectPath, "apps"))),
+  ];
 
   if (isDry) {
     logger.log(
       `Would update project from version ${fromVersion} to ${currentHash}`,
     );
     logger.log(`Found ${filteredDiffs.length} changes in template`);
-    logger.log(`Found ${workspaces.length} workspaces to potentially update`);
+    logger.log(
+      `Found ${projectWorkspaces.length} workspaces to potentially update`,
+    );
     logger.log(`Ignored files: ${[...ignoredFiles].join(", ")}`);
     return;
   }
 
-  // Apply root-level changes
-  for (let diff of filteredDiffs) {
-    if (
-      diff.path.startsWith("packages/template-") ||
-      diff.path.startsWith("apps/template-")
-    ) {
+  // Apply root-level changes (excluding workspace changes)
+  let rootDiffs = filteredDiffs.filter(
+    (diff) =>
+      !diff.path.startsWith("packages/") && !diff.path.startsWith("apps/"),
+  );
+  for (let diff of rootDiffs) {
+    await applyDiff(projectPath, diff, logger);
+  }
+
+  // Process each workspace
+  let { templateLibrary, templateApp } = await getTemplateWorkspaces(tempDir);
+
+  for (let workspacePath of projectWorkspaces) {
+    let workspaceInfo = await getWorkspaceInfo(workspacePath);
+    if (!workspaceInfo) {
+      logger.log(
+        `Warning: Could not read package.json for workspace: ${workspacePath}`,
+      );
       continue;
     }
 
-    await applyDiff(projectPath, diff);
-  }
+    // Find matching workspace in template
+    let templateWorkspacePath = await findMatchingTemplateWorkspace(
+      workspaceInfo,
+      tempDir,
+    );
 
-  // Handle template workspace changes
-  let templateLibraryDiffs = filteredDiffs.filter((d) =>
-    d.path.startsWith("packages/template-library"),
-  );
-  let templateAppDiffs = filteredDiffs.filter((d) =>
-    d.path.startsWith("apps/template-app"),
-  );
+    if (templateWorkspacePath) {
+      // Get relative path from template root to template workspace
+      let templateRelativePath = path.relative(tempDir, templateWorkspacePath);
 
-  // Apply template changes to each matching workspace
-  for (let workspace of workspaces) {
-    let templateDiffs = workspace.startsWith("packages/")
-      ? templateLibraryDiffs
-      : templateAppDiffs;
-
-    for (let diff of templateDiffs) {
-      let relativePath = diff.path.replace(
-        workspace.startsWith("packages/")
-          ? "packages/template-library"
-          : "apps/template-app",
-        workspace,
+      // Find diffs for this template workspace
+      let workspaceDiffs = filteredDiffs.filter((d) =>
+        d.path.startsWith(templateRelativePath + path.sep),
       );
 
-      await applyDiff(projectPath, {
-        ...diff,
-        path: relativePath,
-      });
+      // Apply diffs to the project workspace
+      for (let diff of workspaceDiffs) {
+        let relativePath = diff.path.replace(
+          templateRelativePath,
+          workspacePath,
+        );
+
+        await applyDiff(
+          projectPath,
+          {
+            ...diff,
+            path: relativePath,
+          },
+          logger,
+        );
+      }
+    } else {
+      // No matching workspace found in template, apply template-library or template-app changes
+      let isLibrary = workspacePath.startsWith(
+        path.join(projectPath, "packages"),
+      );
+      let templatePath = isLibrary ? templateLibrary : templateApp;
+
+      if (templatePath) {
+        let templateRelativePath = path.relative(tempDir, templatePath);
+
+        // Find diffs for the template workspace
+        let workspaceDiffs = filteredDiffs.filter((d) =>
+          d.path.startsWith(templateRelativePath + path.sep),
+        );
+
+        if (workspaceDiffs.length > 0) {
+          logger.log(
+            `Applying ${isLibrary ? "template-library" : "template-app"} changes to ${workspaceInfo.packageName}`,
+          );
+
+          // Apply diffs to the project workspace
+          for (let diff of workspaceDiffs) {
+            let relativePath = diff.path.replace(
+              templateRelativePath,
+              workspacePath,
+            );
+
+            await applyDiff(
+              projectPath,
+              {
+                ...diff,
+                path: relativePath,
+              },
+              logger,
+            );
+          }
+        }
+      } else {
+        logger.log(
+          `Note: No matching template workspace found for ${workspaceInfo.packageName} at ${workspacePath} and no template ${
+            isLibrary ? "library" : "app"
+          } available`,
+        );
+      }
     }
   }
 
@@ -429,9 +788,49 @@ export async function run(): Promise<void> {
         }
         break;
       }
+      case "help": {
+        console.log(
+          "\nwhare - A CLI tool for creating and managing monorepos\n",
+        );
+        console.log("Description:");
+        console.log(
+          "  whare helps you create and maintain monorepo projects with best practices",
+        );
+        console.log(
+          "  and standardized structure. It provides tools for initializing new monorepos",
+        );
+        console.log(
+          "  and keeping them up to date with the latest template changes.\n",
+        );
+        console.log("Usage: whare [command] [options]\n");
+        console.log("Commands:");
+        console.log(
+          "  init      Initialize a new whare monorepo project from the template",
+        );
+        console.log(
+          "  update    Update an existing whare project with the latest template changes",
+        );
+        console.log("  help      Show this help message\n");
+        console.log("Options:");
+        console.log(
+          "  --path    Specify the project path (default: current directory)",
+        );
+        console.log(
+          "  --dry     Run the command in dry mode (shows what would happen without making changes)",
+        );
+        console.log(
+          "  --verbose Show detailed output during command execution\n",
+        );
+        console.log("Examples:");
+        console.log("  whare init my-monorepo");
+        console.log("  whare update --dry");
+        console.log("  whare update --verbose\n");
+        process.exit(0);
+        break;
+      }
       default: {
         console.error(
-          "Invalid command. Available commands: init, add, remove, update",
+          "Invalid command. Available commands: init, update, help",
         );
         process.exit(1);
       }
