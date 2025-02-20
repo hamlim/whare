@@ -489,7 +489,7 @@ async function applyDiff(
 }
 
 // Add these new constants and types
-let DEFAULT_IGNORED_FILES = new Set(["bun.lockb"]);
+let DEFAULT_IGNORED_FILES = new Set(["bun.lockb", "bun.lock"]);
 
 // Helper to normalize workspace paths
 function normalizeWorkspacePath(basePath: string, inputPath: string): string {
@@ -527,6 +527,28 @@ async function updateProject(
   let pkgJsonPath = path.join(projectPath, "package.json");
   let pkgJsonContents = await readFile(pkgJsonPath, "utf8");
   let pkgJson = JSON.parse(pkgJsonContents);
+
+  let previousWhareVersion = pkgJson.whare?.version;
+
+  // biome-ignore lint/performance/noDelete: <explanation>
+  delete pkgJson.whare?.version;
+
+  // temporarily replace whare.version with a placeholder
+  // that we can use to update the version after we apply our diffs below!
+  await writeFile(
+    pkgJsonPath,
+    JSON.stringify(
+      {
+        ...pkgJson,
+        whare: {
+          ...pkgJson.whare,
+          whareVersionPlaceholderDONOTUSE: `<${previousWhareVersion}>`,
+        },
+      },
+      null,
+      2,
+    ),
+  );
 
   // Get ignored workspaces from package.json
   let ignoredWorkspaces = new Set(
@@ -676,13 +698,13 @@ async function updateProject(
   }
 
   // Update version in package.json
-  pkgJsonContents = await readFile(pkgJsonPath, "utf8");
-  pkgJson = JSON.parse(pkgJsonContents);
-  pkgJson.whare = {
-    ...(pkgJson.whare || {}),
-    version: currentHash,
-  };
-  await writeFile(pkgJsonPath, JSON.stringify(pkgJson, null, 2));
+  let fileContents = await readFile(pkgJsonPath, "utf8");
+  // Replace <version> placeholder with currentHash and whareVersionPlaceholderDONOTUSE with version
+  let updatedContents = fileContents.replace(
+    /"whareVersionPlaceholderDONOTUSE":\s*"<[^>]+>"/,
+    `"version": "${currentHash}"`,
+  );
+  await writeFile(pkgJsonPath, updatedContents);
 
   // Show status and instructions
   logger.log("\nUpdate completed! Review the changes:");

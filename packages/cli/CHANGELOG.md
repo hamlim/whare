@@ -1,5 +1,14 @@
 ### Unreleased:
 
+### [0.2.3] - February 20th, 2025
+
+- Fix whare.version duplicate when running update
+
+### [0.2.2] - February 14th, 2025
+
+- Fix whare.version change to root package.json if it contains diffs
+- Fix ignore bun.lock diffs
+
 ### [0.2.1] - February 13th, 2025
 
 - Add support for `ignoredWorkspaces` config to ignore packages or apps during the update process
