@@ -1,5 +1,10 @@
 ### Unreleased:
 
+### [0.3.0] - March 4th, 2025
+
+- Change template monorepo to `monorepo-shell-template`
+  - This is a more plain monorepo template, without specific dependencies on next.js
+
 ### [0.2.3] - February 20th, 2025
 
 - Fix whare.version duplicate when running update

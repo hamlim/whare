@@ -83,7 +83,7 @@ function parseArgs(): { command: Command; options: CommandOptions } | null {
 async function getCurrentTemplateHash(logger: Logger): Promise<string> {
   try {
     let { stdout } = await exec(
-      `git ls-remote https://github.com/hamlim/template-monorepo.git`,
+      `git ls-remote https://github.com/hamlim/monorepo-shell-template.git`,
     );
 
     return stdout.split("\t")[0];
@@ -96,7 +96,7 @@ async function getCurrentTemplateHash(logger: Logger): Promise<string> {
 async function cloneTemplate(clonePath: string, logger: Logger): Promise<void> {
   try {
     await exec(
-      `cd ${clonePath} && git clone https://github.com/hamlim/template-monorepo.git .`,
+      `cd ${clonePath} && git clone https://github.com/hamlim/monorepo-shell-template.git .`,
     );
   } catch (error) {
     logger.log(`Error: Failed to clone template: ${error}`);
@@ -732,7 +732,7 @@ export async function run(): Promise<void> {
             `[Dry Run] Would initialize new project at: ${options.path}`,
           );
           console.log(
-            `[Dry Run] Would clone template from: hamlim/template-monorepo`,
+            `[Dry Run] Would clone template from: hamlim/monorepo-shell-template`,
           );
           console.log(
             `[Dry Run] Would update package.json with template version hash: ${hash}`,
